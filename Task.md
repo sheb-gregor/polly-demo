@@ -21,9 +21,9 @@ Use a publicly accessible git service (github, bitbucket, etc) for the project s
 
 The project instructions should explain how to run the code, how it was tested, what was omitted due to lack of time. 
 
-The goal is build a subsystem (go package) for a simple pub-sub polling service, which will be usedwithanHTTP-basedinterface.O nlythepub/subcomponent/packageisascopeofthis assignment; knowing it will be used through HTTP should shape the design decisions (like which HTTP methods are most appropriate for which interface methods). 
+The goal is build a subsystem (go package) for a simple pub-sub polling service, which will be used with an HTTP-based interface. Only the pub/sub component/package is a scope of this assignment; knowing it will be used through HTTP should shape the design decisions (like which HTTP methods are most appropriate for which interface methods). 
 
-  The following are concepts and fundamental functions of this pub-sub service: 
+The following are concepts and fundamental functions of this pub-sub service: 
 
 - It allows to subscribe to and publish to topics; 
 - A topic is identified by name; 
