@@ -105,14 +105,14 @@ Finally, provide the answer to the following questions:
 
 ##### What is the message publish algorithm complexity in big-O notation? 
 
-**O(N)*, where N is number of subscribers; because we add message ID into FIFO for each subscriber.
+**O(N)** - where N is number of subscribers; because we add message ID into FIFO for each subscriber.
 
  
 ##### What is the message poll algorithm complexity in big-O notation?
 
-**O(1)** message retrieval is almost constant, because we take it by an identifier from the card.
+**O(1)** - message retrieval is almost constant, because we take it by an identifier from the map.
  
 ##### What is the memory (space) complexity in big-O notation for the algorithm? 
 
-**O(N)*, where N is number of messages; because we store only one copy of message.
+**O(N)** -  where N is number of messages, because we store only one copy of message.
 
