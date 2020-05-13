@@ -6,10 +6,10 @@ import (
 	"io/ioutil"
 	"log"
 
-	"polly-demo/server"
-
 	"github.com/lancer-kit/uwe/v2"
 	"github.com/lancer-kit/uwe/v2/presets/api"
+	"github.com/sheb-gregor/polly-demo/mq"
+	"github.com/sheb-gregor/polly-demo/server"
 	"gopkg.in/yaml.v2"
 )
 
@@ -29,8 +29,8 @@ func main() {
 	// you can log it with you favorite logger (ex Logrus, Zap, etc)
 	chief.SetEventHandler(chiefEventHandler())
 
-	broker := server.NewBroker()
-	chief.AddWorker("broker-server", api.NewServer(cfg.API, GetServer(broker)))
+	broker := mq.NewBroker()
+	chief.AddWorker("broker-server", api.NewServer(cfg.API, server.GetServer(broker)))
 
 	// init all registered workers and run it all
 	chief.Run()

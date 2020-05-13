@@ -16,7 +16,7 @@ Content-Type: application/json
   "data": {
     "txKind": "withdrawal",
     "currencyShortName": "eth",
-    "txHash": "2a1cb01c08ab64915727e9e1a902fc68b6d07a0f518507b7715ff620fce90aa6",
+    "txHash": "2a1cb01c08ab64915727e9e1a902fc68b6d07a0518507b7715ff620fce90aa6",
     "valueInCrypto": "0.00094280",
     "valueInTether": "9.10694280",
     "createdAt": 1585137738,
@@ -32,13 +32,9 @@ Content-Type: application/json
 ###
 
 
-GET http://localhost:3000/poll
+GET http://localhost:3000/poll?topic=test_1&subscriber=alpha
 Content-Type: application/json
 
-{
-  "topic": "test_1",
-  "subscriber": "alpha"
-}
 
 ###
 

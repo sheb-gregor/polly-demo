@@ -1,4 +1,4 @@
-package server
+package mq
 
 import (
 	"encoding/json"
@@ -15,7 +15,7 @@ func TestTopic_New(t *testing.T) {
 	assert.NotNil(t, topic.unreadCount)
 
 	assert.Equal(t, int64(0), topic.subCount)
-	assert.Equal(t, int64(0), topic.lastId)
+	assert.Equal(t, int64(0), topic.lastID)
 	assert.Equal(t, 0, len(topic.subscribers))
 	assert.Equal(t, 0, len(topic.messages))
 	assert.Equal(t, 0, len(topic.unreadCount))
@@ -41,7 +41,7 @@ func TestTopic_Subscribe(t *testing.T) {
 
 	assert.Equal(t, int64(len(names)), topic.subCount)
 	assert.Equal(t, len(names), len(topic.subscribers))
-	assert.Equal(t, int64(0), topic.lastId)
+	assert.Equal(t, int64(0), topic.lastID)
 
 	unknownNames := []string{"alpha", "bravo", "eva", "travis"}
 	for _, name := range unknownNames {
@@ -120,7 +120,7 @@ func TestTopic_PutMessage(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, len(messages), int(topic.lastId))
+	assert.Equal(t, len(messages), int(topic.lastID))
 
 	for i, message := range messages {
 		m := topic.messages[int64(i+1)]
@@ -150,7 +150,7 @@ func TestTopic_Poll(t *testing.T) {
 	for _, msg := range messages {
 		topic.PutMessage(msg)
 	}
-	msgCount := int(topic.lastId)
+	msgCount := int(topic.lastID)
 
 	for subIndex, name := range names {
 		list, ok := topic.subscribers[name]
@@ -159,7 +159,8 @@ func TestTopic_Poll(t *testing.T) {
 		assert.Equal(t, msgCount, list.Len())
 
 		for msgID := 0; msgID < msgCount; msgID++ {
-			message := topic.Poll(name)
+			message, subscribed := topic.Poll(name)
+			assert.True(t, subscribed)
 
 			list, ok := topic.subscribers[name]
 			assert.True(t, ok)

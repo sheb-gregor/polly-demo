@@ -1,165 +1,145 @@
 package server
 
 import (
-	"container/list"
 	"encoding/json"
-	"sync"
+	"errors"
+	"log"
+	"net/http"
+
+	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
+	"github.com/sheb-gregor/polly-demo/mq"
 )
 
-type Broker struct {
-	topics sync.Map // topics is a map[string]Topic
+type Message struct {
+	Topic string          `json:"topic"`
+	Data  json.RawMessage `json:"data,omitempty"`
 }
 
-func NewBroker() *Broker {
-	return &Broker{
-		topics: sync.Map{},
+func (msg Message) Validate() error {
+	if msg.Topic == "" {
+		return errors.New("topic should not be empty")
 	}
+
+	if msg.Data == nil {
+		return errors.New("data should not be empty")
+	}
+	return nil
 }
 
-func (broker *Broker) HandleNewMessage(topic string, data json.RawMessage) {
-	raw, present := broker.topics.Load(topic)
-	tReg, ok := raw.(*Topic)
-	if !present || !ok {
-		return
-	}
-
-	tReg.PutMessage(data)
-	broker.topics.Store(topic, tReg)
-	return
+type PollReq struct {
+	Topic      string `json:"topic"`
+	Subscriber string `json:"subscriber"`
 }
 
-func (broker *Broker) Subscribe(topic, subscriber string) {
-	raw, present := broker.topics.Load(topic)
-	tReg, ok := raw.(*Topic)
-	if !present || !ok {
-		tReg = NewTopic()
+func (msg PollReq) Validate() error {
+	if msg.Topic == "" {
+		return errors.New("topic should not be empty")
 	}
 
-	tReg.Subscribe(subscriber)
-	broker.topics.Store(topic, tReg)
+	if msg.Subscriber == "" {
+		return errors.New("subscriber should not be empty")
+	}
+	return nil
 }
 
-func (broker *Broker) Unsubscribe(topic, subscriber string) {
-	raw, present := broker.topics.Load(topic)
-	tReg, ok := raw.(*Topic)
-	if !present || !ok {
-		return
-	}
-
-	tReg.Unsubscribe(subscriber)
-	broker.topics.Store(topic, tReg)
+type StatusMsg struct {
+	Message string `json:"message"`
 }
 
-func (broker *Broker) Poll(topic, subscriber string) json.RawMessage {
-	raw, present := broker.topics.Load(topic)
-	tReg, ok := raw.(*Topic)
-	if !present || !ok {
-		return nil
-	}
+func GetServer(broker *mq.Broker) http.Handler {
+	mux := chi.NewMux()
 
-	msg := tReg.Poll(subscriber)
-	broker.topics.Store(topic, tReg)
-	return msg
-}
+	mux.Use(middleware.Logger)
+	mux.Use(middleware.Recoverer)
 
-type Topic struct {
-	sync.Mutex
-
-	subCount int64
-	lastId   int64
-
-	// subscribers - this map contains Unread Message Queues (FIFOs) for each user,
-	// the value of the list item is the message identifier.
-	subscribers map[string]*list.List
-	// unreadCount map contains counters that show how many subscribers have not yet received each message.
-	unreadCount map[int64]int64
-	// messages map with messages, key is unique ID of message
-	messages map[int64]json.RawMessage
-}
-
-func NewTopic() *Topic {
-	return &Topic{
-		subscribers: map[string]*list.List{},
-		unreadCount: map[int64]int64{},
-		messages:    map[int64]json.RawMessage{},
-	}
-}
-
-func (topic *Topic) Poll(subscriber string) json.RawMessage {
-	topic.Lock()
-	defer topic.Unlock()
-
-	queue, ok := topic.subscribers[subscriber]
-	if !ok {
-		return nil
-	}
-
-	if queue.Len() == 0 {
-		return nil
-	}
-
-	el := queue.Front()
-	queue.Remove(el)
-
-	id, ok := el.Value.(int64)
-	if !ok {
-		return nil
-	}
-
-	data, found := topic.messages[id]
-	if !found {
-		return nil
-	}
-
-	topic.unreadCount[id] -= 1
-	if topic.unreadCount[id] <= 0 {
-		delete(topic.messages, id)
-		delete(topic.unreadCount, id)
-	}
-
-	return data
-}
-
-func (topic *Topic) PutMessage(data json.RawMessage) {
-	topic.Lock()
-
-	topic.lastId += 1
-	topic.messages[topic.lastId] = data
-	topic.unreadCount[topic.lastId] = topic.subCount
-
-	for name := range topic.subscribers {
-		topic.subscribers[name].PushBack(topic.lastId)
-	}
-
-	topic.Unlock()
-}
-
-func (topic *Topic) Subscribe(subscriber string) {
-	topic.Lock()
-	if _, ok := topic.subscribers[subscriber]; !ok {
-		topic.subscribers[subscriber] = list.New()
-	}
-	topic.subCount += 1
-	topic.Unlock()
-}
-
-func (topic *Topic) Unsubscribe(subscriber string) {
-	topic.Lock()
-	defer topic.Unlock()
-
-	if _, ok := topic.subscribers[subscriber]; !ok {
-		return
-	}
-
-	delete(topic.subscribers, subscriber)
-
-	topic.subCount -= 1
-	for id, counter := range topic.unreadCount {
-		counter -= 1
-		if counter <= 0 {
-			delete(topic.messages, id)
-			delete(topic.unreadCount, id)
+	mux.Get("/poll", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		req := PollReq{
+			Topic:      query.Get("topic"),
+			Subscriber: query.Get("subscriber"),
 		}
-		topic.unreadCount[id] = 0
+
+		if err := req.Validate(); err != nil {
+			writeError(w, err)
+			return
+		}
+
+		msg, subscribed := broker.Poll(req.Topic, req.Subscriber)
+		if !subscribed {
+			writeData(w, http.StatusNotFound, StatusMsg{Message: http.StatusText(http.StatusNotFound)})
+			return
+		}
+		writeSuccess(w, Message{Topic: req.Topic, Data: msg})
+	})
+
+	mux.Post("/publish", func(w http.ResponseWriter, r *http.Request) {
+		req := Message{}
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			writeError(w, err)
+			return
+		}
+
+		broker.HandleNewMessage(req.Topic, req.Data)
+		writeSuccess(w, StatusMsg{Message: http.StatusText(http.StatusOK)})
+	})
+
+	mux.Post("/subscribe", func(w http.ResponseWriter, r *http.Request) {
+		req := PollReq{}
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			writeError(w, err)
+			return
+		}
+
+		broker.Subscribe(req.Topic, req.Subscriber)
+		writeSuccess(w, StatusMsg{Message: http.StatusText(http.StatusOK)})
+	})
+
+	mux.Post("/unsubscribe", func(w http.ResponseWriter, r *http.Request) {
+		req := PollReq{}
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			writeError(w, err)
+			return
+		}
+
+		broker.Unsubscribe(req.Topic, req.Subscriber)
+		writeSuccess(w, StatusMsg{Message: http.StatusText(http.StatusOK)})
+	})
+
+	return mux
+}
+
+func writeSuccess(w http.ResponseWriter, data interface{}) {
+	writeData(w, http.StatusOK, data)
+}
+
+func writeError(w http.ResponseWriter, err error) {
+	log.Println("ERROR: processing error", err.Error())
+
+	writeData(w, http.StatusBadRequest, StatusMsg{Message: err.Error()})
+}
+
+func writeData(w http.ResponseWriter, code int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+
+	err := json.NewEncoder(w).Encode(data)
+	if err != nil {
+		log.Println("ERROR: filed to write response ", err.Error())
 	}
 }
